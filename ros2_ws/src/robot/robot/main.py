@@ -79,38 +79,8 @@ def run(robot: Robot) -> None:
     next_tick = time.monotonic()
 
     while True:
-        if state == "INIT":
-            start_robot(robot)
-            print("[FSM] INIT (odometry reset)")
-            path_control_points = [ #Define your path control points here (x, y) in mm
-                (0.0, 0.0), # 1st point
-                (0.0, 500.0), # 2nd point
-                (500.0, 500.0), # 3rd point
-                (500.0, 0.0), # 4th point
-                (0.0, 0.0), # 5th point
-            ]    
-            path1 = path_control_points
-            #path1 = densify_polyline(path_control_points, spacing=20.0)
-            remaining_path = path1.copy() 
-            print("Path is ready, Entering IDLE state.")
-            state = "IDLE"
-
-        elif state == "IDLE":
-            show_idle_leds(robot)
-            print("[FSM] IDLE - Press BTN_1 to enter MOVING state.")
-            if robot.get_button(Button.BTN_1):
-                LOOKAHEAD_DIST = 100.0 # Lookahead distance in mm (adjust as needed)
-                planner1 = PurePursuitPlanner(
-                    lookahead_dist=LOOKAHEAD_DIST, 
-                    max_angular=1.5, # Max angular velocity in rad/s (adjust as needed)
-                    goal_tolerance=20.0, # Distance in mm to consider the target reached (adjust as needed)
-             )
-                print("Pure Pursuit Planner is initialized. Start Moving!")
-                print("[FSM] MOVING")
-                state = "MOVING"
-
-        elif state == "MOVING":
-            show_moving_leds(robot)
+       while True:
+    time.sleep(1.0)
             """Start your code here"""
             # Step 1: Get current pose, including current coordinates and heading angle in degrees 
             # using robot.get_pose() function. Store the values in current_x, current_y, and current_theta_deg variables. 

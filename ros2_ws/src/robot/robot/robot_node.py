@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import signal
 import threading
+import time
 
 import rclpy
 from rclpy.executors import ExternalShutdownException
@@ -24,9 +25,14 @@ class RobotNode(Node):
             10,
         )
 
+        self.busy = False
+
         self.get_logger().info("robot node ready")
 
     def on_ultrasonic_distance(self, msg: Float32) -> None:
+        if self.busy:
+            return
+
         distance = msg.data
         level = self.distance_to_level(distance)
 
@@ -40,6 +46,12 @@ class RobotNode(Node):
             f"Ultrasonic distance {distance:.1f} cm -> target level {level}"
         )
 
+        self.busy = True
+        try:
+            self.run_spatula_sequence(level)
+        finally:
+            self.busy = False
+
     def distance_to_level(self, distance_cm: float) -> int | None:
         if 5.0 <= distance_cm < 10.0:
             return 1
@@ -48,6 +60,41 @@ class RobotNode(Node):
         if 15.0 <= distance_cm < 20.0:
             return 3
         return None
+
+    def level_to_stepper_target(self, level: int) -> int:
+        level_map = {
+            1: 1000,
+            2: 2000,
+            3: 3000,
+        }
+        return level_map[level]
+
+    def run_spatula_sequence(self, level: int) -> None:
+        STEPPER_ID = 1
+        SERVO_CHANNEL = 1
+
+        REST_ANGLE = 90.0
+        OPEN_ANGLE = 20.0
+        CLOSED_ANGLE = 120.0
+
+        target_steps = self.level_to_stepper_target(level)
+
+        self.get_logger().info(f"Moving stepper {STEPPER_ID} to {target_steps} steps")
+        self.robot.step_enable(STEPPER_ID)
+        self.robot.step_move(STEPPER_ID, target_steps, move_type=0, blocking=True, timeout=5.0)
+
+        self.get_logger().info(f"Setting servo {SERVO_CHANNEL} to OPEN angle {OPEN_ANGLE}")
+        self.robot.enable_servo(SERVO_CHANNEL)
+        self.robot.set_servo(SERVO_CHANNEL, OPEN_ANGLE)
+        time.sleep(1.0)
+
+        self.get_logger().info(f"Setting servo {SERVO_CHANNEL} to CLOSED angle {CLOSED_ANGLE}")
+        self.robot.set_servo(SERVO_CHANNEL, CLOSED_ANGLE)
+        time.sleep(1.0)
+
+        self.get_logger().info(f"Returning servo {SERVO_CHANNEL} to REST angle {REST_ANGLE}")
+        self.robot.set_servo(SERVO_CHANNEL, REST_ANGLE)
+        time.sleep(1.0)
 
 
 def _safe_log(node: Node, level: str, message: str) -> None:
@@ -65,7 +112,6 @@ def main(args=None) -> None:
     rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     node = RobotNode()
 
-    # ROS spin runs in a background thread so main.run() can block freely.
     def _spin() -> None:
         try:
             rclpy.spin(node)

@@ -7,6 +7,7 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
+from std_msgs.msg import Float32
 
 from robot.robot import Robot
 
@@ -15,7 +16,38 @@ class RobotNode(Node):
     def __init__(self) -> None:
         super().__init__("robot")
         self.robot = Robot(self)
+
+        self.ultrasonic_sub = self.create_subscription(
+            Float32,
+            "/ultrasonic_distance",
+            self.on_ultrasonic_distance,
+            10,
+        )
+
         self.get_logger().info("robot node ready")
+
+    def on_ultrasonic_distance(self, msg: Float32) -> None:
+        distance = msg.data
+        level = self.distance_to_level(distance)
+
+        if level is None:
+            self.get_logger().info(
+                f"Ultrasonic distance {distance:.1f} cm -> no valid level"
+            )
+            return
+
+        self.get_logger().info(
+            f"Ultrasonic distance {distance:.1f} cm -> target level {level}"
+        )
+
+    def distance_to_level(self, distance_cm: float) -> int | None:
+        if 5.0 <= distance_cm < 10.0:
+            return 1
+        if 10.0 <= distance_cm < 15.0:
+            return 2
+        if 15.0 <= distance_cm < 20.0:
+            return 3
+        return None
 
 
 def _safe_log(node: Node, level: str, message: str) -> None:

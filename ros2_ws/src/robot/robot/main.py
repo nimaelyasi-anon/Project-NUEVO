@@ -75,6 +75,11 @@ LIFT_ACCELERATION = 1200 # TODO: Verify
 LIFT_HOME_VELOCITY = 1000 # TODO: Verify
 LIFT_MOVE_TIMEOUT_S = 10.0
 
+# Safety limit switch IDs — update to match hardware ports
+GRIPPER_LIMIT_ID = 1
+LIFT_BOTTOM_LIMIT_ID = 2
+LIFT_DOWN_IS_POSITIVE = True
+
 # ---------------------------------------------------------------------------
 # Safety limit switch configuration — edit IDs to match hardware ports
 # ---------------------------------------------------------------------------
@@ -157,6 +162,35 @@ def safe_close_gripper(robot: Robot) -> bool:
     robot.set_servo(GRIPPER_SERVO, GRIPPER_CLOSE_DEG)
     time.sleep(GRIPPER_SETTLE_S)
     return True
+
+def safe_lift_move(robot: Robot, steps: int, move_type: StepMoveType) -> bool:
+    is_downward = (
+        move_type == StepMoveType.RELATIVE
+        and ((LIFT_DOWN_IS_POSITIVE and steps > 0) or ((not LIFT_DOWN_IS_POSITIVE) and steps < 0))
+    )
+
+    if is_downward and robot.get_limit(LIFT_BOTTOM_LIMIT_ID):
+        print("[SAFETY] Lift bottom limit pressed — not moving downward.")
+        return False
+
+    return robot.step_move(
+        LIFT_STEPPER,
+        steps=steps,
+        move_type=move_type,
+        blocking=True,
+        timeout=LIFT_MOVE_TIMEOUT_S,
+    )
+
+
+def safe_close_gripper(robot: Robot) -> bool:
+    if robot.get_limit(GRIPPER_LIMIT_ID):
+        print("[SAFETY] Gripper limit pressed — not closing further.")
+        return False
+
+    robot.set_servo(GRIPPER_SERVO, GRIPPER_CLOSE_DEG)
+    time.sleep(GRIPPER_SETTLE_S)
+    return True
+
 
 def run_pick_sequence(robot: Robot) -> bool:
     """Run one blocking pick sequence from top to bottom."""

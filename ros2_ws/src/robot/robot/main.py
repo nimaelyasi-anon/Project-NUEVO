@@ -36,17 +36,14 @@ WHAT THIS TEACHES
 4. `set_motor_position(..., max_vel_ticks=...)` to apply a velocity limit
 5. Writing a simple blocking actuator sequence with `time.sleep(...)`
 """
-
 from __future__ import annotations
 
 import time
 
 from robot.hardware_map import (
     Button,
-    DCMotorMode,
     DEFAULT_FSM_HZ,
     LED,
-    Motor,
     POSITION_UNIT,
     ServoChannel,
     StepMoveType,
@@ -55,39 +52,25 @@ from robot.hardware_map import (
 from robot.robot import FirmwareState, Robot
 
 
-# ---------------------------------------------------------------------------
-# Actuator configuration — edit these to match your build
-# ---------------------------------------------------------------------------
-
-# Servo 1 — gripper jaw
 GRIPPER_SERVO = ServoChannel.CH_1
 GRIPPER_OPEN_DEG = 0.0
-GRIPPER_CLOSE_DEG = 40.0 # TODO: Switch to limit switch feedback
+GRIPPER_CLOSE_DEG = 40.0
 GRIPPER_SETTLE_S = 1.0
 
-# Stepper 1 — horizontal arm extension
 LIFT_STEPPER = Stepper.STEPPER_1
-LIFT_EXTEND_STEPS = -15000 # Absolute, TODO: Measure
-LIFT_LOWER_STEPS = 3000 # Relative, TODO: Measure
-LIFT_BUFFER_STEPS = -1000 # Relative, TODO: Measure
-LIFT_MAX_VELOCITY = 5000 # TODO: Verify
-LIFT_ACCELERATION = 1200 # TODO: Verify
-LIFT_HOME_VELOCITY = 1000 # TODO: Verify
+LIFT_EXTEND_STEPS = -15000
+LIFT_LOWER_STEPS = 3000
+LIFT_BUFFER_STEPS = -1000
+LIFT_MAX_VELOCITY = 5000
+LIFT_ACCELERATION = 1200
+LIFT_HOME_VELOCITY = 1000
 LIFT_MOVE_TIMEOUT_S = 10.0
 
-# Safety limit switch IDs — update to match hardware ports
+# Safety limit switch IDs — update these to match hardware ports
 GRIPPER_LIMIT_ID = 1
 LIFT_BOTTOM_LIMIT_ID = 2
-LIFT_DOWN_IS_POSITIVE = True
-
-# ---------------------------------------------------------------------------
-# Safety limit switch configuration — edit IDs to match hardware ports
-# ---------------------------------------------------------------------------
-GRIPPER_LIMIT_ID = 1          # TODO: set to grabber over-travel limit input
-LIFT_BOTTOM_LIMIT_ID = 2      # TODO: set to bottom actuator/base-plate limit input
 
 # In this file, LIFT_LOWER_STEPS = +3000, so positive relative motion means DOWN.
-# If testing shows positive steps move the lift upward, change this to False.
 LIFT_DOWN_IS_POSITIVE = True
 
 
@@ -113,12 +96,11 @@ def show_running_leds(robot: Robot) -> None:
 
 
 def home_lift(robot: Robot) -> bool:
-    """Home the lift stepper against its limit switch."""
     print("[FSM] HOMING — press BTN_3 to trigger the shared LIM1 input for stepper 1")
     robot.step_enable(LIFT_STEPPER)
     ok = robot.step_home(
         LIFT_STEPPER,
-        direction=1, # TODO: Verify
+        direction=1,
         home_velocity=LIFT_HOME_VELOCITY,
         backoff_steps=50,
         blocking=True,
@@ -133,40 +115,12 @@ def home_lift(robot: Robot) -> bool:
 
 
 def safe_lift_move(robot: Robot, steps: int, move_type: StepMoveType) -> bool:
-    is_downward_relative_move = (
+    is_downward = (
         move_type == StepMoveType.RELATIVE
         and (
             (LIFT_DOWN_IS_POSITIVE and steps > 0)
             or ((not LIFT_DOWN_IS_POSITIVE) and steps < 0)
         )
-    )
-
-    if is_downward_relative_move and robot.get_limit(LIFT_BOTTOM_LIMIT_ID):
-        print("[SAFETY] Lift bottom limit pressed — not moving downward.")
-        return False
-
-    return robot.step_move(
-        LIFT_STEPPER,
-        steps=steps,
-        move_type=move_type,
-        blocking=True,
-        timeout=LIFT_MOVE_TIMEOUT_S,
-    )
-
-
-def safe_close_gripper(robot: Robot) -> bool:
-    if robot.get_limit(GRIPPER_LIMIT_ID):
-        print("[SAFETY] Gripper limit pressed — not closing further.")
-        return False
-
-    robot.set_servo(GRIPPER_SERVO, GRIPPER_CLOSE_DEG)
-    time.sleep(GRIPPER_SETTLE_S)
-    return True
-
-def safe_lift_move(robot: Robot, steps: int, move_type: StepMoveType) -> bool:
-    is_downward = (
-        move_type == StepMoveType.RELATIVE
-        and ((LIFT_DOWN_IS_POSITIVE and steps > 0) or ((not LIFT_DOWN_IS_POSITIVE) and steps < 0))
     )
 
     if is_downward and robot.get_limit(LIFT_BOTTOM_LIMIT_ID):
@@ -193,7 +147,6 @@ def safe_close_gripper(robot: Robot) -> bool:
 
 
 def run_pick_sequence(robot: Robot) -> bool:
-    """Run one blocking pick sequence from top to bottom."""
     robot.step_set_config(
         LIFT_STEPPER,
         max_velocity=LIFT_MAX_VELOCITY,
@@ -201,7 +154,6 @@ def run_pick_sequence(robot: Robot) -> bool:
     )
     robot.enable_servo(GRIPPER_SERVO)
     robot.step_enable(LIFT_STEPPER)
-
 
     print("[SEQ] Raise lift")
     if not robot.step_move(
@@ -220,13 +172,13 @@ def run_pick_sequence(robot: Robot) -> bool:
     robot.set_servo(GRIPPER_SERVO, GRIPPER_OPEN_DEG)
     time.sleep(GRIPPER_SETTLE_S)
 
-    print("[SEQ] Lower lift") # TODO: Change values
+    print("[SEQ] Lower lift")
     if not safe_lift_move(
         robot,
         steps=LIFT_LOWER_STEPS,
         move_type=StepMoveType.RELATIVE,
     ):
-        print("[warn] arm failed to extend — check stepper enable or home limit wiring")
+        print("[warn] lift lower blocked or failed")
         robot.step_disable(LIFT_STEPPER)
         robot.disable_servo(GRIPPER_SERVO)
         return False
@@ -236,7 +188,7 @@ def run_pick_sequence(robot: Robot) -> bool:
         robot.step_disable(LIFT_STEPPER)
         robot.disable_servo(GRIPPER_SERVO)
         return False
-    
+
     print("[SEQ] Raise lift")
     if not robot.step_move(
         LIFT_STEPPER,
@@ -245,19 +197,20 @@ def run_pick_sequence(robot: Robot) -> bool:
         blocking=True,
         timeout=LIFT_MOVE_TIMEOUT_S,
     ):
-        print("[warn] arm failed to extend — check stepper enable or home limit wiring")
+        print("[warn] arm failed to raise — check stepper enable or home limit wiring")
         robot.step_disable(LIFT_STEPPER)
         robot.disable_servo(GRIPPER_SERVO)
         return False
 
     robot.step_disable(LIFT_STEPPER)
     robot.disable_servo(GRIPPER_SERVO)
+    return True
+
 
 def run(robot: Robot) -> None:
     configure_robot(robot)
 
     state = "INIT"
-
     period = 1.0 / float(DEFAULT_FSM_HZ)
     next_tick = time.monotonic()
 
@@ -267,13 +220,9 @@ def run(robot: Robot) -> None:
             home_lift(robot)
             show_idle_leds(robot)
             print("[FSM] IDLE — press BTN_1 to run the pick sequence")
-            print(
-                f"[CFG] gripper open={GRIPPER_OPEN_DEG:.0f}° close={GRIPPER_CLOSE_DEG:.0f}°"
-            )
-            print(
-                f"[CFG] lift raised={LIFT_EXTEND_STEPS} steps "
-                f"home_vel={LIFT_HOME_VELOCITY} steps/s"
-            )
+            print(f"[CFG] gripper open={GRIPPER_OPEN_DEG:.0f}° close={GRIPPER_CLOSE_DEG:.0f}°")
+            print(f"[CFG] lift raised={LIFT_EXTEND_STEPS} steps home_vel={LIFT_HOME_VELOCITY} steps/s")
+            print(f"[CFG] safety gripper_limit={GRIPPER_LIMIT_ID} lift_bottom_limit={LIFT_BOTTOM_LIMIT_ID}")
             state = "IDLE"
 
         elif state == "IDLE":
@@ -288,7 +237,7 @@ def run(robot: Robot) -> None:
             if ok:
                 print("[FSM] IDLE — sequence complete")
             else:
-                print("[FSM] IDLE — sequence stopped due to actuator timeout")
+                print("[FSM] IDLE — sequence stopped due to safety guard or actuator timeout")
             state = "IDLE"
 
         next_tick += period
